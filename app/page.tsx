@@ -46,6 +46,7 @@ export default function Home() {
   const particleIdRef = useRef(0); 
   const strokeEvents = useRef<number[]>([]);
   const arousalRef = useRef(0);
+  const intensityRef = useRef(0);
   const pausedRef = useRef(false);
   const cooldownRef = useRef(0);
   const lastHapticAtRef = useRef(0);
@@ -66,6 +67,14 @@ export default function Home() {
     cooldownRef.current = cooldown;
   }, [cooldown]);
 
+  useEffect(() => {
+    arousalRef.current = arousal;
+  }, [arousal]);
+
+  useEffect(() => {
+    intensityRef.current = intensity;
+  }, [intensity]);
+
   const scaleVibrate = (pattern: number | number[], intensity01: number) => {
     const scale = 0.4 + intensity01 * 0.9; // avoid fully silent at low values
     if (typeof pattern === "number") return Math.max(0, Math.round(pattern * scale));
@@ -84,12 +93,20 @@ export default function Home() {
       if (!hasMotionStarted && motionKickRef.current >= 3) setHasMotionStarted(true);
 
       if (!hasMotionStarted) {
-        setIntensity((prev) => prev * 0.85);
+        setIntensity((prev) => {
+          const next = prev * 0.85;
+          intensityRef.current = next;
+          return next;
+        });
         return;
       }
 
       const gainScale = 3 + sensitivity; // sensitivity 1-10 => 4..13
-      setIntensity((prev) => prev * 0.7 + delta * gainScale);
+      setIntensity((prev) => {
+        const next = prev * 0.7 + delta * gainScale;
+        intensityRef.current = next;
+        return next;
+      });
     },
     [sensitivity, hasMotionStarted],
   );
@@ -172,29 +189,31 @@ export default function Home() {
         return;
       }
 
-      setIntensity((current) => {
-        const inactive = now - lastMotionTimestamp.current > 180;
-        const nextIntensity = inactive ? current * 0.94 : current * 0.98;
-        const normalized = clamp(nextIntensity / 30, 0, 1);
-        const gain = normalized > 0.25 ? normalized * 22 * dt : 0;
-        const decay = normalized < 0.25 ? 8 * dt : 0;
+      const inactive = now - lastMotionTimestamp.current > 180;
+      const nextIntensity = clamp(
+        inactive ? intensityRef.current * 0.94 : intensityRef.current * 0.98,
+        0,
+        160,
+      );
+      const normalized = clamp(nextIntensity / 30, 0, 1);
+      const gain = normalized > 0.25 ? normalized * 22 * dt : 0;
+      const decay = normalized < 0.25 ? 8 * dt : 0;
+      const nextArousal = clamp(arousalRef.current + gain - decay, 0, 100);
 
-        setArousal((prev) => {
-          const nextArousal = clamp(prev + gain - decay, 0, 100);
-          arousalRef.current = nextArousal;
-          if (cooldownRef.current <= 0 && nextArousal >= 95 && nextIntensity > 35) {
-            if (!peakHoldStartRef.current) peakHoldStartRef.current = performance.now();
-              if (performance.now() - peakHoldStartRef.current > 1500 && !peakLockRef.current) {
-                peakHoldStartRef.current = 0;
-                runPeakPulse();
-            }
-          } else {
-            peakHoldStartRef.current = 0;
-          }
-          return nextArousal;
-        });
-        return clamp(nextIntensity, 0, 160);
-      });
+      intensityRef.current = nextIntensity;
+      arousalRef.current = nextArousal;
+      setIntensity(nextIntensity);
+      setArousal(nextArousal);
+
+      if (cooldownRef.current <= 0 && nextArousal >= 95 && nextIntensity > 35) {
+        if (!peakHoldStartRef.current) peakHoldStartRef.current = performance.now();
+        if (performance.now() - peakHoldStartRef.current > 1500 && !peakLockRef.current) {
+          peakHoldStartRef.current = 0;
+          queueMicrotask(() => runPeakPulse());
+        }
+      } else {
+        peakHoldStartRef.current = 0;
+      }
 
       frameRef.current = requestAnimationFrame(loop);
     };
