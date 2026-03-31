@@ -41,7 +41,7 @@ export default function Home() {
   const repeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const peakLockRef = useRef(false);
   const peakHoldStartRef = useRef(0);
-  const particleIdRef = useRef(0);
+  const particleIdRef = useRef(0); 
   const strokeEvents = useRef<number[]>([]);
   const arousalRef = useRef(0);
   const pausedRef = useRef(false);
@@ -67,7 +67,7 @@ export default function Home() {
     if (typeof pattern === "number") return Math.max(0, Math.round(pattern * scale));
     return pattern.map((ms) => Math.max(0, Math.round(ms * scale)));
   };
-
+//some comment
   const feedMotion = useCallback(
     (x: number, y: number, z: number) => {
     const magnitude = Math.sqrt(x * x + y * y + z * z);
