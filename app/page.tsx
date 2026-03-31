@@ -10,6 +10,7 @@ type Particle = {
   vy: number;
   life: number;
   opacity: number;
+  emoji: string;
 };
 
 const clamp = (value: number, min: number, max: number) =>
@@ -51,11 +52,13 @@ export default function Home() {
   const cooldownRef = useRef(0);
   const lastHapticAtRef = useRef(0);
   const motionKickRef = useRef(0);
+  const burstIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const burstTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const colorMeter = useMemo(() => {
-    if (arousal < 35) return "from-cyan-400 to-indigo-500";
-    if (arousal < 75) return "from-indigo-500 to-fuchsia-500";
-    return "from-red-500 to-yellow-300";
+    if (arousal < 35) return "from-sky-400 to-indigo-500";
+    if (arousal < 75) return "from-violet-500 to-fuchsia-500";
+    return "from-rose-500 to-orange-400";
   }, [arousal]);
   const hapticsSupported = "vibrate" in navigator;
 
@@ -116,6 +119,7 @@ export default function Home() {
     setTimeout(() => setBurst(false), 220);
 
     const count = 12;
+    const burstEmojis = ["💦", "✨", "💧", "⚡"];
     const now = performance.now();
     const spawned: Particle[] = Array.from({ length: count }, () => {
       const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
@@ -128,15 +132,31 @@ export default function Home() {
         vy: Math.sin(angle) * speed,
         life: now + 1000 + Math.random() * 800,
         opacity: 1,
+        emoji: burstEmojis[Math.floor(Math.random() * burstEmojis.length)],
       };
     });
     setParticles((prev) => [...prev, ...spawned]);
   };
 
+  const triggerBurstStream = useCallback((durationMs = 3500, tickMs = 180) => {
+    if (burstIntervalRef.current) clearInterval(burstIntervalRef.current);
+    if (burstTimeoutRef.current) clearTimeout(burstTimeoutRef.current);
+
+    triggerBurst();
+    burstIntervalRef.current = setInterval(() => {
+      triggerBurst();
+    }, tickMs);
+
+    burstTimeoutRef.current = setTimeout(() => {
+      if (burstIntervalRef.current) clearInterval(burstIntervalRef.current);
+      burstIntervalRef.current = null;
+    }, durationMs);
+  }, []);
+
   const runPeakPulse = useCallback(() => {
     if (peakLockRef.current) return;
     peakLockRef.current = true;
-    triggerBurst();
+    triggerBurstStream(3600, 170);
     if (hapticsOn && hapticsSupported) {
       const intensity01 = vibrationIntensity / 10;
       navigator.vibrate(
@@ -149,7 +169,7 @@ export default function Home() {
     setTimeout(() => {
       peakLockRef.current = false;
     }, 10_000);
-  }, [hapticsOn, vibrationIntensity, hapticsSupported]);
+  }, [hapticsOn, vibrationIntensity, hapticsSupported, triggerBurstStream]);
 
   useEffect(() => {
     if (!started) return;
@@ -276,13 +296,14 @@ export default function Home() {
     const now = performance.now();
     const intensity01 = vibrationIntensity / 10;
     const minGapMs =
-      arousal >= 95 ? 2600 : arousal >= 80 ? 750 : arousal >= 60 ? 550 : arousal >= 35 ? 900 : 999999;
+      arousal >= 95 ? 2600 : arousal >= 85 ? 350 : arousal >= 80 ? 750 : arousal >= 60 ? 550 : arousal >= 35 ? 900 : 999999;
     if (now - lastHapticAtRef.current < minGapMs) return;
 
     if (arousal >= 95 && intensity > 35) return; // peak will handle this after the hold
 
     let pattern: number | number[] | null = null;
-    if (arousal >= 80) pattern = [70, 60, 70];
+    if (arousal >= 85) pattern = 18; // near-peak micro jolts
+    else if (arousal >= 80) pattern = [70, 60, 70];
     else if (arousal >= 60) pattern = [40, 40, 40];
     else if (arousal >= 35) pattern = 25;
     else pattern = null;
@@ -292,10 +313,17 @@ export default function Home() {
     navigator.vibrate(scaleVibrate(pattern, intensity01));
   }, [arousal, intensity, started, paused, cooldown, hasMotionStarted, hapticsOn, vibrationIntensity, hapticsSupported]);
 
+  useEffect(() => {
+    return () => {
+      if (burstIntervalRef.current) clearInterval(burstIntervalRef.current);
+      if (burstTimeoutRef.current) clearTimeout(burstTimeoutRef.current);
+    };
+  }, []);
+
   const scale = 0.9 + clamp(arousal / 200, 0, 0.6);
   const bgStrength = clamp(arousal / 100, 0, 1);
   const backgroundStyle = {
-    background: `radial-gradient(circle at 50% 42%, rgba(${90 + Math.round(140 * bgStrength)}, 30, ${140 + Math.round(90 * bgStrength)}, ${0.22 + bgStrength * 0.45}) 0%, rgba(10, 10, 18, 0.96) 58%, rgba(0,0,0,1) 100%)`,
+    background: `radial-gradient(circle at 50% 30%, rgba(255,255,255,${0.95 - bgStrength * 0.2}) 0%, rgba(241,245,249,0.98) 46%, rgba(224,231,255,${0.78 + bgStrength * 0.2}) 100%)`,
   };
   const statusText =
     !hasMotionStarted
@@ -311,13 +339,13 @@ export default function Home() {
             : "Edge zone. Hold intensity!";
 
   return (
-    <div className="min-h-screen text-zinc-100 transition-colors duration-300" style={backgroundStyle}>
+    <div className="min-h-screen text-zinc-900 transition-colors duration-300" style={backgroundStyle}>
       {!started ? (
         <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 p-6 text-center">
-          <h1 className="text-4xl font-black tracking-[0.25em] text-fuchsia-300 sm:text-5xl">
+          <h1 className="text-4xl font-black tracking-[0.08em] text-indigo-700 sm:text-5xl">
             SHADOW FLAIL TRAINER
           </h1>
-          <p className="max-w-lg text-zinc-300">
+          <p className="max-w-lg text-zinc-700">
             Motion fitness demo using gyroscope + desktop simulation. For PC testing,
             use repeat stroke and simulated motion controls.
           </p>
@@ -334,7 +362,7 @@ export default function Home() {
               setArousal(0);
               setIntensity(0);
             }}
-            className="rounded-xl bg-fuchsia-500 px-6 py-3 font-bold text-black transition hover:bg-fuchsia-400"
+            className="rounded-xl border-4 border-black bg-yellow-300 px-6 py-3 font-black text-black shadow-[6px_6px_0_0_#000] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[4px_4px_0_0_#000]"
           >
             Start Session
           </button>
@@ -342,20 +370,20 @@ export default function Home() {
       ) : (
         <main className="mx-auto flex min-h-screen w-full max-w-none flex-col p-0 sm:p-6 md:max-w-5xl">
           {/* Mobile-only minimal navbar */}
-          <div className="fixed left-0 right-0 top-0 z-20 flex items-center justify-between gap-3 bg-black/60 px-3 py-2 backdrop-blur md:hidden">
-            <div className="text-xs text-zinc-300">
-              Score: <span className="text-zinc-100">{Math.round(arousal)}/100</span>
+          <div className="fixed left-0 right-0 top-0 z-20 flex items-center justify-between gap-3 border-b-4 border-black bg-white/95 px-3 py-2 md:hidden">
+            <div className="text-xs text-zinc-700">
+              Score: <span className="font-black text-black">{Math.round(arousal)}/100</span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPaused((p) => !p)}
-                className="rounded-lg bg-zinc-900/80 px-3 py-2 text-xs font-bold text-zinc-100"
+                className="rounded-lg border-2 border-black bg-sky-200 px-3 py-2 text-xs font-black text-black"
               >
                 {paused ? "Resume" : "Pause"}
               </button>
               <button
                 onClick={() => setSettingsOpen(true)}
-                className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-xs font-bold text-zinc-100"
+                className="rounded-lg border-2 border-black bg-violet-200 px-3 py-2 text-xs font-black text-black"
               >
                 Settings
               </button>
@@ -367,7 +395,7 @@ export default function Home() {
                   setHasMotionStarted(false);
                   motionKickRef.current = 0;
                 }}
-                className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-xs font-bold text-zinc-100"
+                className="rounded-lg border-2 border-black bg-rose-200 px-3 py-2 text-xs font-black text-black"
               >
                 Reset
               </button>
@@ -375,18 +403,18 @@ export default function Home() {
           </div>
 
           <div className="pt-12 md:pt-0">
-          <div className="mb-2 rounded-none border-y border-fuchsia-700/60 bg-black/35 p-3 md:mb-4 md:rounded-xl md:border md:bg-black/40">
+          <div className="mb-2 rounded-none border-y-4 border-black bg-white/80 p-3 md:mb-4 md:rounded-xl md:border-4">
             <div className="mb-2 flex items-center justify-between text-sm">
               <span>Arousal Meter</span>
               <span>{Math.round(arousal)}/100</span>
             </div>
-            <div className="h-4 overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-4 overflow-hidden rounded-full border-2 border-black bg-zinc-100">
               <div
                 className={`h-full bg-gradient-to-r transition-all duration-150 ${colorMeter}`}
                 style={{ width: `${arousal}%` }}
               />
             </div>
-            <div className="mt-2 flex justify-between text-xs text-zinc-300">
+            <div className="mt-2 flex justify-between text-xs text-zinc-700">
               <span>Intensity: {Math.round(intensity)}</span>
               <span>Strokes/sec: {strokesPerSec}</span>
               <span>Cooldown: {cooldown}s</span>
@@ -394,7 +422,7 @@ export default function Home() {
             </div>
           </div>
 
-          <section className="relative flex min-h-[68vh] flex-1 items-center justify-center overflow-hidden bg-black/20 md:min-h-0 md:rounded-2xl md:border md:border-zinc-700/50 md:bg-black/30">
+          <section className="relative flex min-h-[68vh] flex-1 items-center justify-center overflow-hidden bg-white/40 md:min-h-0 md:rounded-2xl md:border-4 md:border-black">
             {burst && <div className="absolute inset-0 bg-white/20" />}
 
             <div
@@ -404,7 +432,6 @@ export default function Home() {
                 transition: paused ? "transform 0.25s ease" : "transform 0.08s linear",
               }}
             >
-              {/* Outer silhouette (non-explicit, shadow-like totem) */}
               <div
                 className="flailTotem"
                 style={{
@@ -412,48 +439,36 @@ export default function Home() {
                   animationPlayState: intensity > 18 && cooldown <= 0 && !paused ? "running" : "paused",
                 }}
               >
-                <div className="absolute bottom-0 left-1/2 h-14 w-[10px] -translate-x-1/2 rounded-full bg-zinc-900 shadow-[inset_0_10px_18px_rgba(255,255,255,0.05),0_18px_40px_rgba(0,0,0,0.85)]" />
-
-                <div className="absolute bottom-3 left-1/2 flex w-[150%] -translate-x-1/2 items-end justify-center gap-2">
-                  <div className="h-10 w-10 rounded-full bg-zinc-900 shadow-[inset_0_10px_18px_rgba(255,255,255,0.05),0_18px_40px_rgba(0,0,0,0.85)]" />
-                  <div className="h-10 w-10 rounded-full bg-zinc-900 shadow-[inset_0_10px_18px_rgba(255,255,255,0.05),0_18px_40px_rgba(0,0,0,0.85)]" />
-                </div>
-
-                <div className="relative h-[240px] w-[96px] sm:h-[280px] sm:w-[112px]">
-                  <div className="absolute inset-x-0 bottom-0 mx-auto h-[250px] w-[72px] rounded-[50px] bg-zinc-900 shadow-[inset_0_14px_20px_rgba(255,255,255,0.06),0_25px_50px_rgba(0,0,0,0.85)] sm:h-[210px] sm:w-[56px]">
-                    {/* subtle depth lines */}
-                    <div className="absolute left-[18px] top-[40px] h-[160px] w-[2px] rotate-[18deg] rounded-full bg-zinc-700/45" />
-                    <div className="absolute left-[30px] top-[55px] h-[140px] w-[2px] -rotate-[12deg] rounded-full bg-zinc-700/35" />
-                    <div className="absolute left-[26px] top-[20px] h-[120px] w-[2px] rotate-[6deg] rounded-full bg-zinc-700/25" />
-                  </div>
-
-                  <div className="absolute left-1/2 top-0 h-[102px] w-[88px] -translate-x-1/2 rounded-[50%_50%_42%_42%] bg-zinc-900 shadow-[inset_0_10px_12px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.8)] sm:h-[86px] sm:w-[76px]" />
+                <div className="relative flex h-[280px] w-[180px] items-center justify-center md:h-[320px] md:w-[220px]">
                   <div
-                    className="absolute left-1/2 top-[22px] h-[48px] w-[62px] -translate-x-1/2 rounded-[48%] bg-zinc-800"
+                    className="relative z-10 select-none text-[130px] leading-none md:text-[170px]"
                     style={{
-                      transform: `translateX(-50%) translateY(${clamp(arousal / 28, 0, 4)}px)`,
-                      transition: "transform 0.12s ease",
+                      transform: `translateY(${clamp(arousal / 20, 0, 5)}px) rotate(180deg)`,
+                      filter: `drop-shadow(0 0 ${8 + arousal / 5}px rgba(99,102,241,0.45))`,
                     }}
-                  />
-                  <div className="absolute left-1/2 top-[6px] h-[18px] w-[26px] -translate-x-1/2 rounded-full bg-zinc-950 shadow-[0_0_0_2px_rgba(255,255,255,0.04),inset_0_-8px_16px_rgba(0,0,0,0.5)]" />
+                  >
+                    🍆
+                  </div>
                 </div>
               </div>
 
               {particles.map((p) => (
                 <div
                   key={p.id}
-                  className="absolute h-3 w-2 rounded-full bg-fuchsia-200 shadow-[0_0_10px_rgba(217,70,239,0.9)]"
+                  className="absolute text-2xl"
                   style={{
                     left: `calc(50% + ${p.x}px)`,
                     top: `${-20 + p.y}px`,
                     opacity: p.opacity,
                   }}
-                />
+                >
+                  {p.emoji}
+                </div>
               ))}
             </div>
           </section>
 
-          <p className="mt-3 text-center text-sm text-zinc-300">{statusText}</p>
+          <p className="mt-3 text-center text-sm font-semibold text-zinc-700">{statusText}</p>
 
           {/* Desktop controls (hidden on mobile) */}
           <div className="mt-4 hidden grid gap-3 sm:grid-cols-2 md:grid">
@@ -543,12 +558,12 @@ export default function Home() {
           {/* Desktop settings modal (mobile uses the navbar button) */}
           {settingsOpen && (
             <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4">
-              <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+              <div className="w-full max-w-md rounded-xl border-4 border-black bg-white p-4 shadow-[8px_8px_0_0_#000]">
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="text-sm font-bold text-zinc-100">Settings</div>
+                  <div className="text-sm font-black text-zinc-900">Settings</div>
                   <button
                     onClick={() => setSettingsOpen(false)}
-                    className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-xs font-bold text-zinc-100"
+                    className="rounded-lg border-2 border-black bg-yellow-200 px-3 py-2 text-xs font-black text-black"
                   >
                     Close
                   </button>
@@ -556,7 +571,7 @@ export default function Home() {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-300">
+                    <label className="mb-1 block text-xs font-semibold text-zinc-700">
                       Sensitivity: {sensitivity} / 10
                     </label>
                     <input
@@ -569,7 +584,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-zinc-300">
+                    <label className="mb-1 block text-xs font-semibold text-zinc-700">
                       Haptic strength: {vibrationIntensity} / 10
                     </label>
                     <input
@@ -583,15 +598,15 @@ export default function Home() {
                   </div>
                   <button
                     onClick={() => setHapticsOn((v) => !v)}
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900/40 py-2 text-sm font-bold text-zinc-100"
+                    className="w-full rounded-lg border-2 border-black bg-sky-200 py-2 text-sm font-black text-black"
                   >
                     Haptics: {hapticsOn ? "On" : "Off"}
                   </button>
-                  <div className="rounded-lg border border-zinc-800 bg-black/30 p-2 text-xs text-zinc-300">
+                  <div className="rounded-lg border-2 border-black bg-indigo-50 p-2 text-xs font-semibold text-zinc-700">
                     Haptics support: {hapticsSupported ? "Detected" : "Not detected on this device/browser"}
                   </div>
 
-                  <div className="rounded-lg border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-300">
+                  <div className="rounded-lg border-2 border-black bg-rose-50 p-3 text-xs font-semibold text-zinc-700">
                     Practice guidance: short motion bursts with recovery breaks.
                     The Peak Pulse triggers when your motion-quality score stays high for about 1.5s.
                     Haptics ramp up in levels (light to stronger to peak). If motion feels uncomfortable, stop and rest.
