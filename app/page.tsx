@@ -363,7 +363,7 @@ export default function Home() {
             }}
             className="rounded-xl border-4 border-black bg-yellow-300 px-6 py-3 font-black text-black shadow-[6px_6px_0_0_#000] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[4px_4px_0_0_#000]"
           >
-            WANKS
+            WANK
           </button>
         </main>
       ) : (
