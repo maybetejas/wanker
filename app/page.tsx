@@ -343,11 +343,10 @@ export default function Home() {
       {!started ? (
         <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 p-6 text-center">
           <h1 className="text-4xl font-black tracking-[0.08em] text-indigo-700 sm:text-5xl">
-            SHADOW FLAIL TRAINER
+            WANKER
           </h1>
           <p className="max-w-lg text-zinc-700">
-            Motion fitness demo using gyroscope + desktop simulation. For PC testing,
-            use repeat stroke and simulated motion controls.
+            SIMULATE WANKS
           </p>
           <button
             onClick={async () => {
@@ -364,7 +363,7 @@ export default function Home() {
             }}
             className="rounded-xl border-4 border-black bg-yellow-300 px-6 py-3 font-black text-black shadow-[6px_6px_0_0_#000] transition hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[4px_4px_0_0_#000]"
           >
-            Start Session
+            WANKS
           </button>
         </main>
       ) : (
