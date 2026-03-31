@@ -20,6 +20,7 @@ export default function Home() {
   const [paused, setPaused] = useState(false);
   const [arousal, setArousal] = useState(0);
   const [intensity, setIntensity] = useState(0);
+  const [hasMotionStarted, setHasMotionStarted] = useState(false);
   const [strokesPerSec, setStrokesPerSec] = useState(0);
   const [testMode, setTestMode] = useState(false);
   const [simIntensity, setSimIntensity] = useState(65);
@@ -33,6 +34,7 @@ export default function Home() {
   const [hapticsOn, setHapticsOn] = useState(true);
   const [sensitivity, setSensitivity] = useState(6); // 1-10
   const [vibrationIntensity, setVibrationIntensity] = useState(7); // 1-10
+  const [peakCount, setPeakCount] = useState(0);
 
   const prevMagnitude = useRef(0);
   const lastMotionTimestamp = useRef(0);
@@ -47,12 +49,14 @@ export default function Home() {
   const pausedRef = useRef(false);
   const cooldownRef = useRef(0);
   const lastHapticAtRef = useRef(0);
+  const motionKickRef = useRef(0);
 
   const colorMeter = useMemo(() => {
     if (arousal < 35) return "from-cyan-400 to-indigo-500";
     if (arousal < 75) return "from-indigo-500 to-fuchsia-500";
     return "from-red-500 to-yellow-300";
   }, [arousal]);
+  const hapticsSupported = "vibrate" in navigator;
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -67,18 +71,27 @@ export default function Home() {
     if (typeof pattern === "number") return Math.max(0, Math.round(pattern * scale));
     return pattern.map((ms) => Math.max(0, Math.round(ms * scale)));
   };
-//some comment
   const feedMotion = useCallback(
     (x: number, y: number, z: number) => {
-    const magnitude = Math.sqrt(x * x + y * y + z * z);
-    const delta = Math.abs(magnitude - prevMagnitude.current);
-    prevMagnitude.current = magnitude;
-    lastMotionTimestamp.current = performance.now();
-    setRawAccel({ x, y, z });
-    const gainScale = 3 + sensitivity; // sensitivity 1-10 => 4..13
-    setIntensity((prev) => prev * 0.7 + delta * gainScale);
+      const magnitude = Math.sqrt(x * x + y * y + z * z);
+      const delta = Math.abs(magnitude - prevMagnitude.current);
+      prevMagnitude.current = magnitude;
+      lastMotionTimestamp.current = performance.now();
+      setRawAccel({ x, y, z });
+
+      if (delta > 1.2) motionKickRef.current = Math.min(8, motionKickRef.current + 1);
+      else motionKickRef.current = Math.max(0, motionKickRef.current - 1);
+      if (!hasMotionStarted && motionKickRef.current >= 3) setHasMotionStarted(true);
+
+      if (!hasMotionStarted) {
+        setIntensity((prev) => prev * 0.85);
+        return;
+      }
+
+      const gainScale = 3 + sensitivity; // sensitivity 1-10 => 4..13
+      setIntensity((prev) => prev * 0.7 + delta * gainScale);
     },
-    [sensitivity],
+    [sensitivity, hasMotionStarted],
   );
 
   const triggerBurst = () => {
@@ -107,7 +120,7 @@ export default function Home() {
     if (peakLockRef.current) return;
     peakLockRef.current = true;
     triggerBurst();
-    if (hapticsOn && "vibrate" in navigator) {
+    if (hapticsOn && hapticsSupported) {
       const intensity01 = vibrationIntensity / 10;
       navigator.vibrate(
         scaleVibrate([300, 150, 250, 120, 300, 400, 200, 150, 180, 800], intensity01),
@@ -115,10 +128,11 @@ export default function Home() {
     }
     setArousal(20);
     setCooldown(10);
+    setPeakCount((prev) => prev + 1);
     setTimeout(() => {
       peakLockRef.current = false;
     }, 10_000);
-  }, [hapticsOn, vibrationIntensity]);
+  }, [hapticsOn, vibrationIntensity, hapticsSupported]);
 
   useEffect(() => {
     if (!started) return;
@@ -235,9 +249,9 @@ export default function Home() {
 
   // Graded haptic feedback that scales with motion quality.
   useEffect(() => {
-    if (!started || paused || cooldown > 0) return;
+    if (!started || paused || cooldown > 0 || !hasMotionStarted) return;
     if (!hapticsOn) return;
-    if (!("vibrate" in navigator)) return;
+    if (!hapticsSupported) return;
     if (peakLockRef.current) return; // peak uses its own stronger pattern
 
     const now = performance.now();
@@ -257,11 +271,17 @@ export default function Home() {
     if (!pattern) return;
     lastHapticAtRef.current = now;
     navigator.vibrate(scaleVibrate(pattern, intensity01));
-  }, [arousal, intensity, started, paused, cooldown, hapticsOn, vibrationIntensity]);
+  }, [arousal, intensity, started, paused, cooldown, hasMotionStarted, hapticsOn, vibrationIntensity, hapticsSupported]);
 
   const scale = 0.9 + clamp(arousal / 200, 0, 0.6);
+  const bgStrength = clamp(arousal / 100, 0, 1);
+  const backgroundStyle = {
+    background: `radial-gradient(circle at 50% 42%, rgba(${90 + Math.round(140 * bgStrength)}, 30, ${140 + Math.round(90 * bgStrength)}, ${0.22 + bgStrength * 0.45}) 0%, rgba(10, 10, 18, 0.96) 58%, rgba(0,0,0,1) 100%)`,
+  };
   const statusText =
-    cooldown > 0
+    !hasMotionStarted
+      ? "Shake to begin tracking."
+      : cooldown > 0
       ? "Cooldown active. Let the system settle."
       : arousal < 35
         ? "Keep moving with steady rhythm."
@@ -272,7 +292,7 @@ export default function Home() {
             : "Edge zone. Hold intensity!";
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-purple-950 text-zinc-100">
+    <div className="min-h-screen text-zinc-100 transition-colors duration-300" style={backgroundStyle}>
       {!started ? (
         <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 p-6 text-center">
           <h1 className="text-4xl font-black tracking-[0.25em] text-fuchsia-300 sm:text-5xl">
@@ -301,7 +321,7 @@ export default function Home() {
           </button>
         </main>
       ) : (
-        <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col p-0 sm:p-6">
+        <main className="mx-auto flex min-h-screen w-full max-w-none flex-col p-0 sm:p-6 md:max-w-5xl">
           {/* Mobile-only minimal navbar */}
           <div className="fixed left-0 right-0 top-0 z-20 flex items-center justify-between gap-3 bg-black/60 px-3 py-2 backdrop-blur md:hidden">
             <div className="text-xs text-zinc-300">
@@ -320,11 +340,23 @@ export default function Home() {
               >
                 Settings
               </button>
+              <button
+                onClick={() => {
+                  setArousal(0);
+                  setIntensity(0);
+                  setCooldown(0);
+                  setHasMotionStarted(false);
+                  motionKickRef.current = 0;
+                }}
+                className="rounded-lg border border-zinc-700 bg-zinc-900/40 px-3 py-2 text-xs font-bold text-zinc-100"
+              >
+                Reset
+              </button>
             </div>
           </div>
 
           <div className="pt-12 md:pt-0">
-          <div className="mb-4 rounded-xl border border-fuchsia-700/60 bg-black/40 p-3">
+          <div className="mb-2 rounded-none border-y border-fuchsia-700/60 bg-black/35 p-3 md:mb-4 md:rounded-xl md:border md:bg-black/40">
             <div className="mb-2 flex items-center justify-between text-sm">
               <span>Arousal Meter</span>
               <span>{Math.round(arousal)}/100</span>
@@ -339,10 +371,11 @@ export default function Home() {
               <span>Intensity: {Math.round(intensity)}</span>
               <span>Strokes/sec: {strokesPerSec}</span>
               <span>Cooldown: {cooldown}s</span>
+              <span>Peaks: {peakCount}</span>
             </div>
           </div>
 
-          <section className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-zinc-700/50 bg-black/30">
+          <section className="relative flex min-h-[68vh] flex-1 items-center justify-center overflow-hidden bg-black/20 md:min-h-0 md:rounded-2xl md:border md:border-zinc-700/50 md:bg-black/30">
             {burst && <div className="absolute inset-0 bg-white/20" />}
 
             <div
@@ -368,14 +401,14 @@ export default function Home() {
                 </div>
 
                 <div className="relative h-[240px] w-[96px] sm:h-[280px] sm:w-[112px]">
-                  <div className="absolute inset-x-0 bottom-0 mx-auto h-[210px] w-[56px] rounded-[50px] bg-zinc-900 shadow-[inset_0_14px_20px_rgba(255,255,255,0.06),0_25px_50px_rgba(0,0,0,0.85)]">
+                  <div className="absolute inset-x-0 bottom-0 mx-auto h-[250px] w-[72px] rounded-[50px] bg-zinc-900 shadow-[inset_0_14px_20px_rgba(255,255,255,0.06),0_25px_50px_rgba(0,0,0,0.85)] sm:h-[210px] sm:w-[56px]">
                     {/* subtle depth lines */}
                     <div className="absolute left-[18px] top-[40px] h-[160px] w-[2px] rotate-[18deg] rounded-full bg-zinc-700/45" />
                     <div className="absolute left-[30px] top-[55px] h-[140px] w-[2px] -rotate-[12deg] rounded-full bg-zinc-700/35" />
                     <div className="absolute left-[26px] top-[20px] h-[120px] w-[2px] rotate-[6deg] rounded-full bg-zinc-700/25" />
                   </div>
 
-                  <div className="absolute left-1/2 top-0 h-[86px] w-[76px] -translate-x-1/2 rounded-[50%_50%_42%_42%] bg-zinc-900 shadow-[inset_0_10px_12px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.8)]" />
+                  <div className="absolute left-1/2 top-0 h-[102px] w-[88px] -translate-x-1/2 rounded-[50%_50%_42%_42%] bg-zinc-900 shadow-[inset_0_10px_12px_rgba(255,255,255,0.05),0_12px_28px_rgba(0,0,0,0.8)] sm:h-[86px] sm:w-[76px]" />
                   <div
                     className="absolute left-1/2 top-[22px] h-[48px] w-[62px] -translate-x-1/2 rounded-[48%] bg-zinc-800"
                     style={{
@@ -420,7 +453,7 @@ export default function Home() {
           </div>
 
           {testMode && (
-            <div className="mt-4 rounded-xl border border-cyan-700/70 bg-zinc-950/80 p-4">
+            <div className="mt-4 hidden rounded-xl border border-cyan-700/70 bg-zinc-950/80 p-4 md:block">
               <p className="mb-3 text-xs uppercase tracking-wide text-cyan-300">
                 For PC Testing - simulates mobile gyroscope
               </p>
@@ -460,6 +493,8 @@ export default function Home() {
                     setIntensity(0);
                     peakHoldStartRef.current = 0;
                     setCooldown(0);
+                    setHasMotionStarted(false);
+                    motionKickRef.current = 0;
                   }}
                   className="rounded-lg border border-zinc-500 bg-zinc-900 px-4 py-2 text-sm font-semibold"
                 >
@@ -533,6 +568,9 @@ export default function Home() {
                   >
                     Haptics: {hapticsOn ? "On" : "Off"}
                   </button>
+                  <div className="rounded-lg border border-zinc-800 bg-black/30 p-2 text-xs text-zinc-300">
+                    Haptics support: {hapticsSupported ? "Detected" : "Not detected on this device/browser"}
+                  </div>
 
                   <div className="rounded-lg border border-zinc-800 bg-black/30 p-3 text-xs text-zinc-300">
                     Practice guidance: short motion bursts with recovery breaks.
